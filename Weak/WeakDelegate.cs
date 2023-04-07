@@ -1,310 +1,900 @@
 ﻿using System;
 using System.Reflection;
+using System.Reflection.Emit;
 
 namespace CSToolbox.Weak
 {
     /// <summary>
     /// A delegate which does not hold a reference to the object it's invoked on
-    /// Sadly, much slower than <see cref="Delegate"/> because it uses reflection
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
     /// </summary>
-    public class WeakDelegate
+    /// <typeparam name="RetType">Return type of the delegate.</typeparam>
+    public sealed class WeakDelegate<RetType>
     {
-        private MethodInfo Method { get; }
+        public delegate RetType CallType();
+        private delegate RetType InvokeType(object target);
+
+        private InvokeType Invoker { get; }
         private WeakReference Object { get; }
 
         /// <summary>
-        /// Returns true if the target object is still alive and the delegate can be called
+        /// Returns true if the target object is still alive and the delegate can be called.
         /// </summary>
         public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public WeakDelegate(MethodInfo method, object target)
+        public WeakDelegate(CallType method)
         {
-            Method = method ?? throw new ArgumentNullException(nameof(method));
-            if (Method.IsStatic)
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
                 throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
-            else if (target == null)
-                throw new ArgumentNullException(nameof(target));
-            Object = new WeakReference(target);
-        }
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
 
-#pragma warning disable CS8604 // Possible null reference argument.
-        public WeakDelegate(Delegate del) : this(del.Method, del.Target) { }
-#pragma warning restore CS8604 // Possible null reference argument.
+            DynamicMethod invoker = new ("", typeof(RetType), new Type[] { typeof(object) }, typeof(WeakDelegate<RetType>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
+        }
 
         /// <summary>
-        /// Invokes this delegate.
+        /// Invokes this delegate
         /// </summary>
-        /// <param name="args">The arguments for the delegate call (similar to args of DynamicInvoke() on Delegate).</param>
-        /// <returns>Delegate call result. It a call is impossible, returns null.</returns>
-        public object? Invoke(object?[]? args)
-        {
-            if (!IsAlive)
-                return null;
-            return Method.Invoke(Object.Target, args);
-        }
+        /// <returns>The result of invoking this delegate</returns>
+        public RetType? Invoke() => Target != null ? Invoker(Target) : default;
 
-        public override bool Equals(object? obj)
-        {
-            return obj is WeakDelegate other && other.Object.Target == Object.Target && other.Method.Equals(Method);
-        }
+        public static implicit operator WeakDelegate<RetType>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakDelegate<RetType> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
 
-        public override int GetHashCode() => base.GetHashCode();
+        public override bool Equals(object? obj) => 
+            obj is WeakDelegate<RetType> other && other.Method.Equals(Method) && other.Target == Target;
 
-        public static implicit operator WeakDelegate(Delegate target)
-        {
-            return new WeakDelegate(target);
-        }
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakDelegate<RetType> : WeakDelegate
-    {
-        public delegate RetType CallType();
-
-        public WeakDelegate(CallType del) : base(del) { }
-
-        public RetType? Invoke() => (RetType?)Invoke(null);
-
-        public static implicit operator WeakDelegate<RetType>(CallType target)
-        {
-            return new WeakDelegate<RetType>(target);
-        }
-    }
-
-    public sealed class WeakDelegate<RetType, Arg1> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="RetType">Return type of the delegate.</typeparam>
+    /// <typeparam name="Arg1">Type of the first argument of the delegate.</typeparam>
+    public sealed class WeakDelegate<RetType, Arg1>
     {
         public delegate RetType CallType(Arg1 arg1);
+        private delegate RetType InvokeType(object target, Arg1 arg1);
 
-        public WeakDelegate(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public RetType? Invoke(Arg1 arg1) => (RetType?)Invoke(new object?[] { arg1 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakDelegate<RetType, Arg1>(CallType target)
+        public WeakDelegate(CallType method)
         {
-            return new WeakDelegate<RetType, Arg1>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", typeof(RetType), new Type[] { typeof(object), typeof(Arg1) }, typeof(WeakDelegate<RetType, Arg1>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public RetType? Invoke(Arg1 arg1) => Object.Target != null ? Invoker(Object.Target, arg1) : default;
+
+        public static implicit operator WeakDelegate<RetType, Arg1>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakDelegate<RetType, Arg1> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakDelegate<RetType, Arg1> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakDelegate<RetType, Arg1, Arg2> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="RetType">Return type of the delegate.</typeparam>
+    /// <typeparam name="Arg1">Type of the first argument of the delegate.</typeparam>
+    /// <typeparam name="Arg2">Type of the second argument of the delegate.</typeparam>
+    public sealed class WeakDelegate<RetType, Arg1, Arg2>
     {
         public delegate RetType CallType(Arg1 arg1, Arg2 arg2);
+        private delegate RetType InvokeType(object target, Arg1 arg1, Arg2 arg2);
 
-        public WeakDelegate(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public RetType? Invoke(Arg1 arg1, Arg2 arg2) => (RetType?)Invoke(new object?[] { arg1, arg2 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakDelegate<RetType, Arg1, Arg2>(CallType target)
+        public WeakDelegate(CallType method)
         {
-            return new WeakDelegate<RetType, Arg1, Arg2>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", typeof(RetType), new Type[] { typeof(object), typeof(Arg1), typeof(Arg2) }, typeof(WeakDelegate<RetType, Arg1, Arg2>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public RetType? Invoke(Arg1 arg1, Arg2 arg2) => Object.Target != null ? Invoker(Object.Target, arg1, arg2) : default;
+
+        public static implicit operator WeakDelegate<RetType, Arg1, Arg2>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakDelegate<RetType, Arg1, Arg2> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakDelegate<RetType, Arg1, Arg2> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="RetType">Return type of the delegate.</typeparam>
+    /// <typeparam name="Arg1">Type of the first argument of the delegate.</typeparam>
+    /// <typeparam name="Arg2">Type of the second argument of the delegate.</typeparam>
+    /// <typeparam name="Arg3">Type of the third argument of the delegate.</typeparam>
+    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3>
     {
         public delegate RetType CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3);
+        private delegate RetType InvokeType(object target, Arg1 arg1, Arg2 arg2, Arg3 arg3);
 
-        public WeakDelegate(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3) => (RetType?)Invoke(new object?[] { arg1, arg2, arg3 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3>(CallType target)
+        public WeakDelegate(CallType method)
         {
-            return new WeakDelegate<RetType, Arg1, Arg2, Arg3>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", typeof(RetType), new Type[] { typeof(object), typeof(Arg1), typeof(Arg2), typeof(Arg3) }, typeof(WeakDelegate<RetType, Arg1, Arg2, Arg3>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+            gen.Emit(OpCodes.Ldarg_3);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3) => Object.Target != null ? Invoker(Object.Target, arg1, arg2, arg3) : default;
+
+        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakDelegate<RetType, Arg1, Arg2, Arg3> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakDelegate<RetType, Arg1, Arg2, Arg3> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="RetType">Return type of the delegate.</typeparam>
+    /// <typeparam name="Arg1">Type of the first argument of the delegate.</typeparam>
+    /// <typeparam name="Arg2">Type of the second argument of the delegate.</typeparam>
+    /// <typeparam name="Arg3">Type of the third argument of the delegate.</typeparam>
+    /// <typeparam name="Arg4">Type of the fourth argument of the delegate.</typeparam>
+    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4>
     {
         public delegate RetType CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4);
+        private delegate RetType InvokeType(object target, Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4);
 
-        public WeakDelegate(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4) => (RetType?)Invoke(new object?[] { arg1, arg2, arg3, arg4 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4>(CallType target)
+        public WeakDelegate(CallType method)
         {
-            return new WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", typeof(RetType), new Type[] { typeof(object), typeof(Arg1), typeof(Arg2), typeof(Arg3), typeof(Arg4) }, typeof(WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+            gen.Emit(OpCodes.Ldarg_3);
+            gen.Emit(OpCodes.Ldarg, 4);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4) => Object.Target != null ? Invoker(Object.Target, arg1, arg2, arg3, arg4) : default;
+
+        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="RetType">Return type of the delegate.</typeparam>
+    /// <typeparam name="Arg1">Type of the first argument of the delegate.</typeparam>
+    /// <typeparam name="Arg2">Type of the second argument of the delegate.</typeparam>
+    /// <typeparam name="Arg3">Type of the third argument of the delegate.</typeparam>
+    /// <typeparam name="Arg4">Type of the fourth argument of the delegate.</typeparam>
+    /// <typeparam name="Arg5">Type of the fifth argument of the delegate.</typeparam>
+    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5>
     {
         public delegate RetType CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5);
+        private delegate RetType InvokeType(object target, Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5);
 
-        public WeakDelegate(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5) => (RetType?)Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5>(CallType target)
+        public WeakDelegate(CallType method)
         {
-            return new WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", typeof(RetType), new Type[] { typeof(object), typeof(Arg1), typeof(Arg2), typeof(Arg3), typeof(Arg4), typeof(Arg5) }, typeof(WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+            gen.Emit(OpCodes.Ldarg_3);
+            gen.Emit(OpCodes.Ldarg, 4);
+            gen.Emit(OpCodes.Ldarg, 5);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5) => Object.Target != null ? Invoker(Object.Target, arg1, arg2, arg3, arg4, arg5) : default;
+
+        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6> : WeakDelegate
-    {
-        public delegate RetType CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6);
-
-        public WeakDelegate(CallType del) : base(del) { }
-
-        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6) => (RetType?)Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5, arg6 });
-
-        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6>(CallType target)
-        {
-            return new WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6>(target);
-        }
-    }
-
-    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7> : WeakDelegate
-    {
-        public delegate RetType CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7);
-
-        public WeakDelegate(CallType del) : base(del) { }
-
-        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7) => (RetType?)Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7 });
-
-        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7>(CallType target)
-        {
-            return new WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7>(target);
-        }
-    }
-
-    public sealed class WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7, Arg8> : WeakDelegate
-    {
-        public delegate RetType CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7, Arg8 arg8);
-
-        public WeakDelegate(CallType del) : base(del) { }
-
-        public RetType? Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7, Arg8 arg8) => (RetType?)Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 });
-
-        public static implicit operator WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7, Arg8>(CallType target)
-        {
-            return new WeakDelegate<RetType, Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7, Arg8>(target);
-        }
-    }
-
-    public sealed class WeakAction : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    public sealed class WeakAction
     {
         public delegate void CallType();
+        private delegate void InvokeType(object target);
 
-        public WeakAction(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public void Invoke() => Invoke(null);
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakAction(CallType target)
+        public WeakAction(CallType method)
         {
-            return new WeakAction(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", null, new Type[] { typeof(object) }, typeof(WeakAction));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public void Invoke()
+        {
+            if (Object.Target != null)
+                Invoker(Object.Target);
+        }
+
+        public static implicit operator WeakAction(CallType target) => new(target);
+        public static implicit operator CallType?(WeakAction source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakAction other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakAction<Arg1> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="Arg1">The type of the first argument if the delegate.</typeparam>
+    public sealed class WeakAction<Arg1>
     {
         public delegate void CallType(Arg1 arg1);
+        private delegate void InvokeType(object target, Arg1 arg1);
 
-        public WeakAction(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public void Invoke(Arg1 arg1) => Invoke(new object?[] { arg1 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakAction<Arg1>(CallType target)
+        public WeakAction(CallType method)
         {
-            return new WeakAction<Arg1>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", null, new Type[] { typeof(object), typeof(Arg1) }, typeof(WeakAction<Arg1>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public void Invoke(Arg1 arg1)
+        {
+            if (Object.Target != null)
+                Invoker(Object.Target, arg1);
+        }
+
+        public static implicit operator WeakAction<Arg1>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakAction<Arg1> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakAction<Arg1> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakAction<Arg1, Arg2> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="Arg1">The type of the first argument if the delegate.</typeparam>
+    /// <typeparam name="Arg2">The type of the second argument if the delegate.</typeparam>
+    public sealed class WeakAction<Arg1, Arg2>
     {
         public delegate void CallType(Arg1 arg1, Arg2 arg2);
+        private delegate void InvokeType(object target, Arg1 arg1, Arg2 arg2);
 
-        public WeakAction(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public void Invoke(Arg1 arg1, Arg2 arg2) => Invoke(new object?[] { arg1, arg2 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakAction<Arg1, Arg2>(CallType target)
+        public WeakAction(CallType method)
         {
-            return new WeakAction<Arg1, Arg2>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", null, new Type[] { typeof(object), typeof(Arg1), typeof(Arg2) }, typeof(WeakAction<Arg1, Arg2>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public void Invoke(Arg1 arg1, Arg2 arg2)
+        {
+            if (Object.Target != null)
+                Invoker(Object.Target, arg1, arg2);
+        }
+
+        public static implicit operator WeakAction<Arg1, Arg2>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakAction<Arg1, Arg2> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakAction<Arg1, Arg2> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakAction<Arg1, Arg2, Arg3> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="Arg1">The type of the first argument if the delegate.</typeparam>
+    /// <typeparam name="Arg2">The type of the second argument if the delegate.</typeparam>
+    /// <typeparam name="Arg3">The type of the third argument if the delegate.</typeparam>
+    public sealed class WeakAction<Arg1, Arg2, Arg3>
     {
         public delegate void CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3);
+        private delegate void InvokeType(object target, Arg1 arg1, Arg2 arg2, Arg3 arg3);
 
-        public WeakAction(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3) => Invoke(new object?[] { arg1, arg2, arg3 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakAction<Arg1, Arg2, Arg3>(CallType target)
+        public WeakAction(CallType method)
         {
-            return new WeakAction<Arg1, Arg2, Arg3>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", null, new Type[] { typeof(object), typeof(Arg1), typeof(Arg2), typeof(Arg3) }, typeof(WeakAction<Arg1, Arg2, Arg3>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+            gen.Emit(OpCodes.Ldarg_3);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3)
+        {
+            if (Object.Target != null)
+                Invoker(Object.Target, arg1, arg2, arg3);
+        }
+
+        public static implicit operator WeakAction<Arg1, Arg2, Arg3>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakAction<Arg1, Arg2, Arg3> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakAction<Arg1, Arg2, Arg3> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakAction<Arg1, Arg2, Arg3, Arg4> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="Arg1">The type of the first argument if the delegate.</typeparam>
+    /// <typeparam name="Arg2">The type of the second argument if the delegate.</typeparam>
+    /// <typeparam name="Arg3">The type of the third argument if the delegate.</typeparam>
+    /// <typeparam name="Arg4">The type of the fourth argument if the delegate.</typeparam>
+    public sealed class WeakAction<Arg1, Arg2, Arg3, Arg4>
     {
         public delegate void CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4);
+        private delegate void InvokeType(object target, Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4);
 
-        public WeakAction(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4) => Invoke(new object?[] { arg1, arg2, arg3, arg4 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakAction<Arg1, Arg2, Arg3, Arg4>(CallType target)
+        public WeakAction(CallType method)
         {
-            return new WeakAction<Arg1, Arg2, Arg3, Arg4>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", null, new Type[] { typeof(object), typeof(Arg1), typeof(Arg2), typeof(Arg3), typeof(Arg4) }, typeof(WeakAction<Arg1, Arg2, Arg3, Arg4>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+            gen.Emit(OpCodes.Ldarg_3);
+            gen.Emit(OpCodes.Ldarg, 4);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
+
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4)
+        {
+            if (Object.Target != null)
+                Invoker(Object.Target, arg1, arg2, arg3, arg4);
+        }
+
+        public static implicit operator WeakAction<Arg1, Arg2, Arg3, Arg4>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakAction<Arg1, Arg2, Arg3, Arg4> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
+
+        public override bool Equals(object? obj) => 
+            obj is WeakAction<Arg1, Arg2, Arg3, Arg4> other && other.Method.Equals(Method) && other.Target == Target;
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 
-    public sealed class WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5> : WeakDelegate
+    /// <summary>
+    /// A delegate which does not hold a reference to the object it's invoked on
+    /// Slower than <see cref="Delegate"/> but faster than reflection.
+    /// </summary>
+    /// <typeparam name="Arg1">The type of the first argument if the delegate.</typeparam>
+    /// <typeparam name="Arg2">The type of the second argument if the delegate.</typeparam>
+    /// <typeparam name="Arg3">The type of the third argument if the delegate.</typeparam>
+    /// <typeparam name="Arg4">The type of the fourth argument if the delegate.</typeparam>
+    /// <typeparam name="Arg5">The type of the fifth argument if the delegate.</typeparam>
+    public sealed class WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5>
     {
         public delegate void CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5);
+        private delegate void InvokeType(object target, Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5);
 
-        public WeakAction(CallType del) : base(del) { }
+        private InvokeType Invoker { get; }
+        private WeakReference Object { get; }
 
-        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5) => Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5 });
+        /// <summary>
+        /// Returns true if the target object is still alive and the delegate can be called.
+        /// </summary>
+        public bool IsAlive => Object.IsAlive;
+        /// <summary>
+        /// The target object of this delegate or null if it is no longer alive.
+        /// </summary>
+        public object? Target => Object.Target;
+        /// <summary>
+        /// The method this delegate invokes.
+        /// </summary>
+        public MethodInfo Method { get; }
 
-        public static implicit operator WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5>(CallType target)
+        public WeakAction(CallType method)
         {
-            return new WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5>(target);
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            else if (method.Method.IsStatic)
+                throw new ArgumentException("Static methods are not supported by WeakDelegate", nameof(method));
+            else if (method.Target == null)
+                throw new ArgumentNullException(nameof(method), "Method's call target is null");
+            
+            Object = new WeakReference(method.Target);
+            Method = method.Method;
+
+            DynamicMethod invoker = new ("", null, new Type[] { typeof(object), typeof(Arg1), typeof(Arg2), typeof(Arg3), typeof(Arg4), typeof(Arg5) }, typeof(WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5>));
+            ILGenerator gen = invoker.GetILGenerator();
+
+            gen.Emit(OpCodes.Ldarg_0);
+            gen.Emit(OpCodes.Ldarg_1);
+            gen.Emit(OpCodes.Ldarg_2);
+            gen.Emit(OpCodes.Ldarg_3);
+            gen.Emit(OpCodes.Ldarg, 4);
+            gen.Emit(OpCodes.Ldarg, 5);
+
+            if (method.Method.IsVirtual)
+                gen.Emit(OpCodes.Callvirt, method.Method);
+            else
+                gen.Emit(OpCodes.Call, method.Method);
+
+            gen.Emit(OpCodes.Ret);
+            Invoker = (InvokeType)invoker.CreateDelegate(typeof(InvokeType));
         }
-    }
 
-    public sealed class WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6> : WeakDelegate
-    {
-        public delegate void CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6);
-
-        public WeakAction(CallType del) : base(del) { }
-
-        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6) => Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5, arg6 });
-
-        public static implicit operator WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6>(CallType target)
+        /// <summary>
+        /// Invokes this delegate
+        /// </summary>
+        /// <returns>The result of invoking this delegate</returns>
+        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5)
         {
-            return new WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6>(target);
+            if (Object.Target != null)
+                Invoker(Object.Target, arg1, arg2, arg3, arg4, arg5);
         }
-    }
 
-    public sealed class WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7> : WeakDelegate
-    {
-        public delegate void CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7);
+        public static implicit operator WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5>(CallType target) => new(target);
+        public static implicit operator CallType?(WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5> source) => (CallType?)(source.IsAlive ? Delegate.CreateDelegate(typeof(CallType), source.Target, source.Method) : null);
 
-        public WeakAction(CallType del) : base(del) { }
+        public override bool Equals(object? obj) => 
+            obj is WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5> other && other.Method.Equals(Method) && other.Target == Target;
 
-        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7) => Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7 });
-
-        public static implicit operator WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7>(CallType target)
-        {
-            return new WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7>(target);
-        }
-    }
-
-    public sealed class WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7, Arg8> : WeakDelegate
-    {
-        public delegate void CallType(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7, Arg8 arg8);
-
-        public WeakAction(CallType del) : base(del) { }
-
-        public void Invoke(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4, Arg5 arg5, Arg6 arg6, Arg7 arg7, Arg8 arg8) => Invoke(new object?[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 });
-
-        public static implicit operator WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7, Arg8>(CallType target)
-        {
-            return new WeakAction<Arg1, Arg2, Arg3, Arg4, Arg5, Arg6, Arg7, Arg8>(target);
-        }
+        public override int GetHashCode() =>
+            HashCode.Combine(Target, Method);
     }
 }
