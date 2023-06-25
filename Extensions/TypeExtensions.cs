@@ -12,7 +12,7 @@ namespace CSToolbox.Extensions
         /// <returns>True if this type is dervice or matches the other type</returns>
         public static bool Is(this Type type, Type other)
         {
-            return type == other || type?.IsSubclassOf(other) == true;
+            return type == other || type?.IsAssignableTo(other) == true;
         }
     }
 }
