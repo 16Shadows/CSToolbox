@@ -96,6 +96,11 @@ namespace CSToolbox
         {
             m_Loader = loader ?? throw new ArgumentNullException(nameof(loader));
         }
+
+        public static implicit operator T?(LazyProperty<T> prop)
+        {
+            return prop.Value;
+        }
     }
 
     /// <summary>
@@ -172,6 +177,11 @@ namespace CSToolbox
         public ReadOnlyLazyProperty(LoaderType loader)
         {
             m_Loader = loader ?? throw new ArgumentNullException(nameof(loader));
+        }
+
+        public static implicit operator T?(ReadOnlyLazyProperty<T> prop)
+        {
+            return prop.Value;
         }
     }
 }
