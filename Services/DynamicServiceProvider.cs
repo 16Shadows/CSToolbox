@@ -39,11 +39,11 @@ namespace CSToolbox.Services
         }
 
         /// <summary>
-        /// Adds a service as all its interfaces it implements
+        /// Adds a service as all the interfaces it implements
         /// </summary>
         /// <param name="service">The service to add</param>
         /// <param name="overrideRegistered">If set to true, this operation will override already added services (interfaces) which are implemented by this service.</param>
-        /// <returns>True if at least one service as added as the result of this operation.</returns>
+        /// <returns>True if at least one service was added as the result of this operation.</returns>
         public bool AddService(object service, bool overrideRegistered = false)
         {
             Type[] types = service.GetType().GetInterfaces();

@@ -25,7 +25,7 @@ namespace CSToolbox
 
         /// <summary>
         /// Raised when this property changes.
-        /// Implemented using <see cref="WeakEvent"/> to allow the object holding this property to subscribe to it without causing a memory leak.
+        /// Implemented using <see cref="WeakEvent"/>.
         /// </summary>
         public WeakEvent<LazyProperty<T>> WeakPropertyChanged { get; } = new();
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -117,7 +117,7 @@ namespace CSToolbox
 
         /// <summary>
         /// Raised when this property changes. 
-        /// Implemented using <see cref="WeakEvent"/> to allow the object holding this property to subscribe to it without causing a memory leak.
+        /// Implemented using <see cref="WeakEvent"/>.
         /// </summary>
         public WeakEvent<ReadOnlyLazyProperty<T>> WeakPropertyChanged { get; } = new();
         public event PropertyChangedEventHandler? PropertyChanged;
