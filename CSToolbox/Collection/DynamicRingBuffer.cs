@@ -8,7 +8,7 @@ namespace CSToolbox.Collection
     /// A ring buffer which supports dynamic expansion of its size
     /// </summary>
     /// <typeparam name="T">The type to store in ring buffer</typeparam>
-    public class DynamicRingBuffer<T> : IEnumerable<T>
+    public class DynamicRingBuffer<T> : IEnumerable<T>, IReadOnlyList<T>
     {
         private T[] _Buffer;
         private int _ReadIndex;
