@@ -183,9 +183,11 @@ namespace CSToolbox.Collection
         /// </summary>
         private void ExpandBuffer()
         {
-            _Capacity++;
-            if (_Capacity <= _Buffer.Length)
+            if (_Capacity < _Buffer.Length)
+            {
+                _Capacity++;
                 return;
+            }
 
             double expansionCoef = _Buffer.Length < 256 ? 2 :
                                     _Buffer.Length < 1024 ? 1.2 : 1.05;
@@ -195,10 +197,11 @@ namespace CSToolbox.Collection
             foreach (T value in this)
                 newBuffer[index++] = value;
 
+            _Capacity++;
             _Buffer = newBuffer;
             _BufferStartIndex = 0;
             _ReadIndex = 0;
-            _WriteIndex = AdjustWriteIndex(index);
+            _WriteIndex = index;
         }
 
         /// <summary>
