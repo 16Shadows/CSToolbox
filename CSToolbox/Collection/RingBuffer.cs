@@ -1,5 +1,7 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace CSToolbox.Collection
@@ -13,12 +15,21 @@ namespace CSToolbox.Collection
 
 		public RingBuffer(int capacity)
 		{
+			if (capacity < 1)
+				throw new ArgumentOutOfRangeException(nameof(capacity), $"{nameof(capacity)} should be greater than 0.");
+
 			_Buffer = new T[capacity];
 		}
 
 		public RingBuffer(IEnumerable<T> items)
 		{
 			_Buffer = items.ToArray();
+		}
+
+		public RingBuffer(int capacity, Action<T[]> initializer) : this(capacity)
+		{
+			ArgumentNullException.ThrowIfNull(initializer);
+			initializer(_Buffer);
 		}
 
 		public T this[int index]

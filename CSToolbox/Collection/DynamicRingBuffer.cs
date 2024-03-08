@@ -41,6 +41,12 @@ namespace CSToolbox.Collection
             _BufferStartIndex = 0;
         }
 
+        public DynamicRingBuffer(int capacity, Func<T[], int> initializer) : this(capacity)
+        {
+            ArgumentNullException.ThrowIfNull(initializer);
+            _WriteIndex = _Count = initializer(_Buffer);
+        }
+
         /// <summary>
         /// Initializes a new <see cref="DynamicRingBuffer{T}"/> containing elements from a provided <see cref="IEnumerable{T}"/>
         /// </summary>
