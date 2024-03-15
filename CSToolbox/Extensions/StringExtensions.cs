@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -75,5 +77,20 @@ namespace CSToolbox.Extensions
         /// <returns>Unescaped string</returns>
         public static string Unescape(this string str, Dictionary<string, string> escapeTable) =>
             Escape(str, escapeTable.ToDictionary(x => x.Value, x => x.Key));
+
+        public static string Replace(this string value, char[] oldChars, char newChar)
+        {
+            StringBuilder sb = new StringBuilder(value);
+
+            HashSet<char> hs = oldChars.ToHashSet();
+            for (int i = 0; i < sb.Length; i++)
+            {
+                if (!hs.Contains(sb[i]))
+                    continue;
+                sb[i] = newChar;
+            }
+
+            return sb.ToString();
+        }
 	}
 }
