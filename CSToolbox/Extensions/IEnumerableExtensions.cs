@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace CSToolbox.Extensions
 {
@@ -69,6 +70,37 @@ namespace CSToolbox.Extensions
 			}
 
 			return nullCounter == 0 && counters.Count == 0;
+		}
+
+		public static bool ContainsItemsOrderInvariant<T>(this IEnumerable<T> first, IEnumerable<T> second) => ContainsItemsOrderInvariant(first, second, EqualityComparer<T>.Default);
+		public static bool ContainsItemsOrderInvariant<T>(this IEnumerable<T> collection, IEnumerable<T> items, IEqualityComparer<T> equalityComparer)
+		{
+			//Code analyzer complains here because TKey shouldn't be nullable (makes sense). However, we need to allow T to be nullable. We are never actually storing nulls in the dictionary.
+#pragma warning disable CS8714
+			Dictionary<T, int> counters = new Dictionary<T, int>(equalityComparer);
+#pragma warning restore CS8714
+			int nullCounter = 0;
+
+			int count = 0;
+
+			foreach (var item in collection)
+			{
+				if (item is null)
+					nullCounter++;
+				else if (counters.TryGetValue(item, out count))
+					counters[item] = count + 1;
+				else
+					counters.Add(item, 1);
+			}
+
+			foreach (var item in items)
+			{
+				if ((item is null && --nullCounter < 0) ||
+					(!counters.TryGetValue(item, out count) || (counters[item] = count - 1) < 0))
+					return false;
+			}
+
+			return true;
 		}
     }
 }
