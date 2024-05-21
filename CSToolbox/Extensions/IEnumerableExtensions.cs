@@ -56,8 +56,8 @@ namespace CSToolbox.Extensions
 
 			foreach (var item in second)
 			{
-				if (item is null)
-					nullCounter--;
+				if (item is null && --nullCounter < 0)
+					return false;
 				else if (counters.TryGetValue(item, out count))
 				{
 					if (count == 1)
@@ -66,10 +66,10 @@ namespace CSToolbox.Extensions
 						counters[item] = count - 1;
 				}
 				else
-					counters.Add(item, -1);
+					return false;
 			}
 
-			return nullCounter == 0 && counters.Count == 0;
+			return counters.Count == 0;
 		}
 
 		public static bool ContainsItemsOrderInvariant<T>(this IEnumerable<T> first, IEnumerable<T> second) => ContainsItemsOrderInvariant(first, second, EqualityComparer<T>.Default);
